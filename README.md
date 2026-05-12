@@ -2,7 +2,7 @@
 
 > Scan Smarter, Swing Harder.
 
-Tired of manually scanning 50 stocks every morning? Swingster does it in seconds. Paste your tickers, get your top 10 VCP, Flag, Cup & Handle, and Breakout setups — scored by AI, ranked by strength. Built for NSE/BSE swing traders.
+Tired of manually scanning 100s of stocks every morning? Swingster does it in seconds. Paste your tickers, get your top 10 VCP, Flag, Cup & Handle, and Breakout setups — scored by AI, ranked by strength. Built for NSE/BSE swing traders.
 
 ---
 
