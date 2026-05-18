@@ -18,6 +18,7 @@ function avgVolume(volumes, period) {
 export function computeMetrics(tickerData, niftyCloses) {
   const { ticker, data } = tickerData
   const closes = data.map(d => d.close)
+  const opens = data.map(d => d.open)
   const volumes = data.map(d => d.volume)
   const highs = data.map(d => d.high)
 
@@ -73,6 +74,83 @@ export function computeMetrics(tickerData, niftyCloses) {
   // Above MA50
   const aboveMA50 = ma50 ? latestClose > ma50 : false
 
+  // ── Explosive Thrust Detection ───────────────────────────
+  // Check for 2+ big green candles with above-avg volume in the 60-to-15 day ago window
+  let hasExplosiveThrust = false
+  const avgVol50ForThrust = avgVol50 // reuse 50-day avg volume
+  if (data.length >= 15) {
+    const windowStart = Math.max(0, data.length - 60)
+    const windowEnd = data.length - 15
+    if (windowEnd > windowStart) {
+      let thrustCount = 0
+      for (let i = windowStart; i < windowEnd; i++) {
+        const d = data[i]
+        const bodyPct = d.open > 0 ? ((d.close - d.open) / d.open) * 100 : 0
+        const isGreen = d.close > d.open
+        const isBigBody = bodyPct > 3
+        const isAboveAvgVol = avgVol50ForThrust ? d.volume > avgVol50ForThrust : false
+        if (isGreen && isBigBody && isAboveAvgVol) {
+          thrustCount++
+        }
+      }
+      hasExplosiveThrust = thrustCount >= 2
+    }
+  }
+
+  // ── Thrust Peak Timing ───────────────────────────────────
+  // Find the highest close in last 60 days and how many days ago it was
+  const last60Closes = closes.slice(-Math.min(60, closes.length))
+  let peakClose = -Infinity
+  let peakIdx = 0
+  for (let i = 0; i < last60Closes.length; i++) {
+    if (last60Closes[i] > peakClose) {
+      peakClose = last60Closes[i]
+      peakIdx = i
+    }
+  }
+  const daysSincePeak = last60Closes.length - 1 - peakIdx
+  const baseFormingAfterThrust = daysSincePeak >= 5 && daysSincePeak <= 30
+
+  // ── Tight Base Detection ─────────────────────────────────
+  // Average candle body size as % of open over last 15 days
+  const last15 = data.slice(-Math.min(15, data.length))
+  let totalBodyPct = 0
+  let validBodyCount = 0
+  for (const d of last15) {
+    if (d.open > 0) {
+      totalBodyPct += Math.abs(d.close - d.open) / d.open * 100
+      validBodyCount++
+    }
+  }
+  const avgBodyPct = validBodyCount > 0 ? +(totalBodyPct / validBodyCount).toFixed(2) : 0
+  const tightBase = avgBodyPct < 2.5
+
+  // ── Buy / Sell Volume Separation ─────────────────────────
+  // Split last 20 days into up days (close > open) and down days (close <= open)
+  const last20Data = data.slice(-Math.min(20, data.length))
+  let buyVol = 0
+  let sellVol = 0
+  let upDayVolumes = []
+  let downDayVolumes = []
+  for (const d of last20Data) {
+    if (d.close > d.open) {
+      buyVol += d.volume
+      upDayVolumes.push(d.volume)
+    } else {
+      sellVol += d.volume
+      downDayVolumes.push(d.volume)
+    }
+  }
+  const buyVolDominance = buyVol > sellVol
+  const buyVolRatio = sellVol > 0 ? +(buyVol / sellVol).toFixed(2) : (buyVol > 0 ? 999 : 0)
+  const avgUpDayVol = upDayVolumes.length > 0
+    ? upDayVolumes.reduce((a, b) => a + b, 0) / upDayVolumes.length
+    : 0
+  const avgDownDayVol = downDayVolumes.length > 0
+    ? downDayVolumes.reduce((a, b) => a + b, 0) / downDayVolumes.length
+    : 0
+  const udRatio = avgDownDayVol > 0 ? +(avgUpDayVol / avgDownDayVol).toFixed(2) : (avgUpDayVol > 0 ? 999 : 0)
+
   // RS raw (will be ranked later)
   // Compute momentum score based on 3m and 6m returns
   let return3m = 0
@@ -106,6 +184,17 @@ export function computeMetrics(tickerData, niftyCloses) {
     volSpike,
     pctFrom52High,
     aboveMA50,
+    // New VCP metrics
+    hasExplosiveThrust,
+    daysSincePeak,
+    baseFormingAfterThrust,
+    avgBodyPct,
+    tightBase,
+    buyVol,
+    sellVol,
+    buyVolDominance,
+    buyVolRatio,
+    udRatio,
     rawRS: +rawRS.toFixed(4),
     rsRating: 0, // will be set by percentile ranking
   }
@@ -130,6 +219,14 @@ export function prefilterByRS(metricsArray) {
 
 // ── Format metrics for Claude prompt ─────────────────────
 export function formatMetricsForPrompt(m) {
-  const spike = m.volSpike ? ' [SPIKE]' : ''
-  return `${m.ticker}: close=${m.latestClose}, pctFrom52H=${m.pctFrom52High}%, priceRange60d=${m.priceRange60d}%, priceRange40d=${m.priceRange40d}%, priceRange20d=${m.priceRange20d}%, volRatio10v30=${m.volRatio10v30}, volRatio1v50=${m.volRatio1v50}${spike}, RS=${m.rsRating}, aboveMA50=${m.aboveMA50}, trendingUp=${m.trendingUp}, contraction=${m.contraction}, ma150=${m.ma150}, ma200=${m.ma200}`
+  const tags = [
+    m.hasExplosiveThrust ? '[THRUST]' : '',
+    m.tightBase ? '[TIGHT]' : '',
+    m.buyVolDominance ? '[BUYERS]' : '[SELLERS]',
+    m.volSpike ? '[SPIKE]' : '',
+  ].filter(Boolean).join(' ')
+  const tagStr = tags ? ` ${tags}` : ''
+  const ma150Str = m.ma150 != null ? m.ma150 : 'N/A'
+  const ma200Str = m.ma200 != null ? m.ma200 : 'N/A'
+  return `${m.ticker}: close=${m.latestClose}, pctFrom52H=${m.pctFrom52High}%, priceRange60d=${m.priceRange60d}%, priceRange40d=${m.priceRange40d}%, priceRange20d=${m.priceRange20d}%, volRatio10v30=${m.volRatio10v30}, volRatio1v50=${m.volRatio1v50}, RS=${m.rsRating}, aboveMA50=${m.aboveMA50}, trendingUp=${m.trendingUp}, contraction=${m.contraction}, ma150=${ma150Str}, ma200=${ma200Str}, hasExplosiveThrust=${m.hasExplosiveThrust}, daysSincePeak=${m.daysSincePeak}, baseFormingAfterThrust=${m.baseFormingAfterThrust}, avgBodyPct=${m.avgBodyPct}%, tightBase=${m.tightBase}, buyVolDominance=${m.buyVolDominance}, buyVolRatio=${m.buyVolRatio}, udRatio=${m.udRatio}${tagStr}`
 }

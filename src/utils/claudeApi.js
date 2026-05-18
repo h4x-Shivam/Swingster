@@ -16,18 +16,37 @@ The user has selected these patterns to scan for: ${patternList}
 Score each stock 0–100 ONLY for the selected patterns. Ignore all other patterns completely.
 
 SCORING GUIDELINES (apply only for selected patterns):
-- VCP: Look for trendingUp=true, contraction=true (which guarantees progressive left-to-right volatility contraction), tight right side (priceRange20d < 10%), volume drying (volRatio10v30 < 0.9), close to 52-week high (pctFrom52High > -20%). Reject deep V-shape recoveries that lack contraction.
-- Cup & Handle: Look for pctFrom52High > -25%, handle range < 8%, and volume contraction.
-- Flag: Look for tight consolidation (priceRange20d < 10%), aboveMA50=true, and volume contracting.
-- Breakout: Look for pctFrom52High > -5% OR actively breaking out, volSpike=true, and price > ma150.
 
-BONUSES (Stackable):
+- VCP SCORING (STRICT RULES — follow exactly):
+  HARD CAPS (non-negotiable):
+  - Score CANNOT exceed 40 if ANY of these are false: hasExplosiveThrust, baseFormingAfterThrust, buyVolDominance.
+  - Score CANNOT exceed 60 unless ALL of these are true: contraction=true, tightBase=true, AND volRatio10v30 < 0.8.
+
+  BONUS POINTS (stackable, add to base score):
+  - udRatio > 2.5: add 12 points
+  - udRatio > 1.5 (but <= 2.5): add 6 points
+  - priceRange20d < 5% AND tightBase=true: add 8 points
+  - pctFrom52H > -8%: add 6 points
+  - daysSincePeak between 10 and 25: add 5 points
+
+  PENALTY POINTS (stackable, subtract from score):
+  - hasExplosiveThrust=false: subtract 25 points
+  - buyVolDominance=false: subtract 20 points
+  - baseFormingAfterThrust=false: subtract 20 points
+  - avgBodyPct > 4%: subtract 10 points
+  - priceRange20d > 12%: subtract 10 points
+  - pctFrom52H < -20%: subtract 15 points
+
+- Cup & Handle: Look for pctFrom52H > -25%, handle range < 8%, and volume contraction.
+- Flag: Look for tight consolidation (priceRange20d < 10%), aboveMA50=true, and volume contracting.
+- Breakout: Look for pctFrom52H > -5% OR actively breaking out, volSpike=true, and price > ma150.
+
+GENERAL BONUSES (Stackable, all patterns):
 - Exceptionally high RS (RS > 85): add 10 points
 - volSpike on a tight VCP or Flag base: add 10 points
 - Perfect Minervini Trend (trendingUp=true AND aboveMA50=true AND price > ma150 AND ma150 > ma200): add 15 points
-- Extremely tight contraction (priceRange20d < 5%): add 5 points
 
-PENALTIES (Stackable):
+GENERAL PENALTIES (Stackable, all patterns):
 - Weak Momentum (RS < 50): subtract 20 points
 - Broken Trend (close < ma200 OR ma150 < ma200): subtract 20 points
 - Loose Action (priceRange20d > 15% for VCP/Flag): subtract 15 points
@@ -35,8 +54,7 @@ PENALTIES (Stackable):
 STOCK DATA:
 ${stockLines}
 
-Format each stock line as:
-TICKER: close=X, pctFrom52H=X%, priceRange60d=X%, priceRange40d=X%, priceRange20d=X%, volRatio10v30=X, volRatio1v50=X [SPIKE if >1.5], RS=X, aboveMA50=true/false, trendingUp=true/false, contraction=true/false, ma150=X, ma200=X
+Each stock line includes inline tags: [THRUST]=explosive thrust detected, [TIGHT]=tight base, [BUYERS]/[SELLERS]=buy vs sell volume dominance, [SPIKE]=volume spike.
 
 Return ONLY a JSON array, no markdown, no explanation:
 [{
